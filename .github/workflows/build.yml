@@ -1,0 +1,51 @@
+name: Build and Release Windows Exe
+
+on:
+  push:
+    tags:
+      - 'v*'        # e.g. v1.0.0 triggers a release build
+  workflow_dispatch:   # also allow manual runs from the Actions tab
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download and bundle VLC
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vlcVersion = "3.0.21"
+          $zipUrl = "https://get.videolan.org/vlc/$vlcVersion/win64/vlc-$vlcVersion-win64.zip"
+          Invoke-WebRequest -Uri $zipUrl -OutFile vlc.zip
+          Expand-Archive -Path vlc.zip -DestinationPath vlc-extract
+          $innerFolder = Get-ChildItem -Path vlc-extract -Directory | Select-Object -First 1
+          Move-Item -Path $innerFolder.FullName -Destination vlc-bin
+          Remove-Item vlc.zip, vlc-extract -Recurse -Force
+
+      - name: Build Windows installer
+        run: npm run dist
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: release/*.exe
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
